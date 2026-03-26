@@ -36,6 +36,75 @@ def hsv_flow_vis(flow_x: np.ndarray, flow_y: np.ndarray,
     return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
 
+def _sample_grid(flow_x, flow_y, step, scale, min_mag=0.5):
+    """Sample flow on a grid and return arrays of start/end points and magnitudes."""
+    h, w = flow_x.shape[:2]
+    ys = np.arange(step // 2, h, step)
+    xs = np.arange(step // 2, w, step)
+    gx, gy = np.meshgrid(xs, ys)
+    gx_flat = gx.ravel()
+    gy_flat = gy.ravel()
+
+    fx = flow_x[gy_flat, gx_flat] * scale
+    fy = flow_y[gy_flat, gx_flat] * scale
+    mag = np.sqrt(fx * fx + fy * fy) / scale  # original magnitude
+    mask = mag >= min_mag
+
+    return gx_flat[mask], gy_flat[mask], fx[mask], fy[mask], mag[mask]
+
+
+def arrow_flow_vis(flow_x: np.ndarray, flow_y: np.ndarray, frame: np.ndarray,
+                   step: int = 16, scale: float = 2.0,
+                   max_magnitude: float = 30.0) -> np.ndarray:
+    """Draw arrow overlay on the original frame."""
+    vis = frame.copy()
+    sx, sy, fx, fy, mag = _sample_grid(flow_x, flow_y, step, scale)
+
+    t = np.clip(mag / max_magnitude, 0, 1)
+    g = (255 * (1 - t)).astype(np.int32)
+    r = (255 * t).astype(np.int32)
+    ex = (sx + fx).astype(np.int32)
+    ey = (sy + fy).astype(np.int32)
+
+    for i in range(len(sx)):
+        cv2.arrowedLine(vis, (int(sx[i]), int(sy[i])), (int(ex[i]), int(ey[i])),
+                        (0, int(g[i]), int(r[i])), 1, tipLength=0.3)
+
+    return vis
+
+
+def vector_flow_vis(flow_x: np.ndarray, flow_y: np.ndarray,
+                    step: int = 12, scale: float = 2.0,
+                    max_magnitude: float = 30.0) -> np.ndarray:
+    """Draw colored vector field on black background. Hue = direction."""
+    h, w = flow_x.shape[:2]
+    vis = np.zeros((h, w, 3), dtype=np.uint8)
+    sx, sy, fx, fy, mag = _sample_grid(flow_x, flow_y, step, scale)
+    if len(sx) == 0:
+        return vis
+
+    ang = np.degrees(np.arctan2(fy, fx)) % 360
+    hue = (ang / 2).astype(np.uint8)
+    val = np.clip(mag / max_magnitude * 255, 0, 255).astype(np.uint8)
+
+    # Batch HSV->BGR conversion
+    hsv_row = np.zeros((1, len(sx), 3), dtype=np.uint8)
+    hsv_row[0, :, 0] = hue
+    hsv_row[0, :, 1] = 255
+    hsv_row[0, :, 2] = val
+    bgr_row = cv2.cvtColor(hsv_row, cv2.COLOR_HSV2BGR)
+
+    ex = (sx + fx).astype(np.int32)
+    ey = (sy + fy).astype(np.int32)
+
+    for i in range(len(sx)):
+        color = (int(bgr_row[0, i, 0]), int(bgr_row[0, i, 1]), int(bgr_row[0, i, 2]))
+        cv2.arrowedLine(vis, (int(sx[i]), int(sy[i])), (int(ex[i]), int(ey[i])),
+                        color, 1, tipLength=0.3)
+
+    return vis
+
+
 def create_flow_calculator(method: str):
     """Create a CUDA optical flow calculator."""
     if method == "nvidia1":
@@ -77,7 +146,7 @@ def calc_flow_nvidia(cap, width, height, version):
 
 def process_video(input_path: str, output_dir: str, method: str, save_video: bool,
                   save_raw: bool, max_frames: int, side_by_side: bool = False,
-                  max_magnitude: float = 30.0):
+                  max_magnitude: float = 30.0, vis_mode: str = "hsv"):
     input_path = Path(input_path)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -188,7 +257,12 @@ def process_video(input_path: str, output_dir: str, method: str, save_video: boo
             sec_idx += 1
 
         # Visualization
-        vis = hsv_flow_vis(flow_x, flow_y, max_magnitude)
+        if vis_mode == "arrow":
+            vis = arrow_flow_vis(flow_x, flow_y, frame, max_magnitude=max_magnitude)
+        elif vis_mode == "vector":
+            vis = vector_flow_vis(flow_x, flow_y, max_magnitude=max_magnitude)
+        else:
+            vis = hsv_flow_vis(flow_x, flow_y, max_magnitude)
 
         if writer:
             if side_by_side:
@@ -247,6 +321,9 @@ def main():
                         help="Output original and flow side by side")
     parser.add_argument("--max-mag", type=float, default=30.0,
                         help="Fixed max magnitude for visualization (pixels/frame, default: 30)")
+    parser.add_argument("--vis-mode", default="hsv",
+                        choices=["hsv", "arrow", "vector"],
+                        help="Visualization mode: hsv (color), arrow (overlay on frame), vector (field on black)")
 
     args = parser.parse_args()
 
@@ -259,7 +336,7 @@ def main():
 
     process_video(args.input, args.output, args.method,
                   args.save_video, args.save_raw, args.max_frames,
-                  args.side_by_side, args.max_mag)
+                  args.side_by_side, args.max_mag, args.vis_mode)
 
 
 if __name__ == "__main__":
