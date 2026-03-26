@@ -1,0 +1,14 @@
+services:
+  optical-flow:
+    build: .
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+      - LD_LIBRARY_PATH=/usr/lib/wsl/lib
+    volumes:
+      - ./input:/data/input:ro
+      - ./output:/data/output
+      - /usr/lib/wsl/lib:/usr/lib/wsl/lib:ro
+    # Override command as needed:
+    command: ["--input", "/data/input/video.mp4", "--output", "/data/output", "--method", "farneback", "--save-video"]
