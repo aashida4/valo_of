@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libavcodec-dev libavformat-dev libswscale-dev \
     libgstreamer-plugins-base1.0-dev libgstreamer1.0-dev \
     libjpeg-dev libpng-dev libtiff-dev \
-    git wget && \
+    git wget ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install --no-cache-dir numpy

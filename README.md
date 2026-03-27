@@ -75,13 +75,22 @@ docker compose run --rm optical-flow \
 | `arrow` | Arrows overlaid on the original frame (green=slow, red=fast) |
 | `vector` | Colored arrow field on black background (hue=direction) |
 
+## Performance
+
+The pipeline includes several optimizations for throughput:
+
+- **Batched arrow/vector drawing**: Color-binned `cv2.polylines()` instead of per-arrow Python loops
+- **GPU-side processing**: `cv2.cuda.cvtColor()`, `cv2.cuda.magnitude()`, `cv2.cuda.absSum()` to minimize CPU-GPU transfers
+- **Threaded pipeline**: Separate reader, compute, and writer threads for concurrent I/O and GPU compute
+- **FFmpeg HW encode/decode**: Automatic NVDEC/NVENC detection with fallback to CPU codecs
+
 ## Architecture
 
 ```
 valo_of/
-├── Dockerfile           # OpenCV 4.9.0 + CUDA on nvidia/cuda:12.2.0-devel-ubuntu22.04
+├── Dockerfile           # OpenCV 4.9.0 + CUDA + FFmpeg on nvidia/cuda:12.2.0-devel-ubuntu22.04
 ├── docker-compose.yml   # NVIDIA runtime, mounts input/ (ro) and output/
-├── optical_flow.py      # Single-script pipeline
+├── optical_flow.py      # Threaded pipeline with GPU acceleration
 ├── input/               # Place input videos here
 └── output/              # Results are written here
 ```
